@@ -7,10 +7,11 @@
 
 #include "uint256.h"
 #include "serialize.h"
-#include "blake2.h"
 
 #include <openssl/sha.h>
 #include <openssl/ripemd.h>
+
+#include "blake2.h"
 
 template<typename T1>
 inline uint256 Hash(const T1 pbegin, const T1 pend)
