@@ -4,7 +4,6 @@
 
 USE_UPNP:=0
 USE_WALLET:=1
-LDFLAGS = -static
 
 LINK:=$(CXX)
 ARCH:=$(system lscpu | head -n 1 | awk '{print $2}')
