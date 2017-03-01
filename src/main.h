@@ -12,6 +12,7 @@
 #include "net.h"
 #include "script.h"
 #include "scrypt.h"
+#include "hash.h"
 
 #include <limits>
 #include <list>
