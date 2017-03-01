@@ -1,0 +1,5 @@
+netko-qt usr/bin
+share/pixmaps/bitcoin32.xpm usr/share/pixmaps
+share/pixmaps/bitcoin80.xpm usr/share/pixmaps
+debian/netko-qt.desktop usr/share/applications
+debian/netko-qt.protocol usr/share/kde4/services/

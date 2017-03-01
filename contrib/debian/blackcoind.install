@@ -1,0 +1,2 @@
+debian/bin/netkod usr/bin
+src/netkod usr/lib/netko
