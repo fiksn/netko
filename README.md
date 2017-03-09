@@ -26,4 +26,4 @@ PoS subsidy phase: ~8 years, 887100 blocks x 25 NETKO = 22,177,500 NETKO
 
 Total in this phase: 25,534,140 NETKO
 
-After block 90000 there is a fixed PoS reward of 0.25 NETKO, adding 43800 NETKO to the supply per year.
+After block 900000 there is a fixed PoS reward of 0.25 NETKO, adding 43800 NETKO to the supply per year.
