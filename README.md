@@ -14,7 +14,7 @@ First PoS block: 12900
 
 PoW subsidy: 259 NETKO
 
-PoS subsidy: 25 NETKO (until block 90000) and 0.25 NETKO (after block 90000)
+PoS subsidy: 25 NETKO (until block 900000) and 0.25 NETKO (after block 900000)
 
 PoW block time: 10 min
 
