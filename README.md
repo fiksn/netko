@@ -32,6 +32,8 @@ After block 900000 there is a fixed PoS reward of 0.25 NETKO, adding 43800 NETKO
 
 - Forum: https://bitcointalk.org/index.php?topic=1810858
 
+- Chain state/ Bootstrap.dat : http://pc.cd/b0a
+
 - Twitter: https://twitter.com/netkocoin
 
 - Web: https://netko.tech
