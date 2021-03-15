@@ -102,7 +102,9 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_NONSTANDARD: return "nonstandard";
     case TX_PUBKEY: return "pubkey";
     case TX_PUBKEYHASH: return "pubkeyhash";
+    case TX_GRP_PUBKEYHASH: return "grouppubkeyhash";
     case TX_SCRIPTHASH: return "scripthash";
+    case TX_GRP_SCRIPTHASH: return "groupscripthash";
     case TX_MULTISIG: return "multisig";
     case TX_NULL_DATA: return "nulldata";
     }
@@ -236,7 +238,7 @@ const char* GetOpName(opcodetype opcode)
     case OP_NOP4                   : return "OP_NOP4";
     case OP_NOP5                   : return "OP_NOP5";
     case OP_NOP6                   : return "OP_NOP6";
-    case OP_NOP7                   : return "OP_NOP7";
+    case OP_GROUP                  : return "OP_GROUP";
     case OP_NOP8                   : return "OP_NOP8";
     case OP_NOP9                   : return "OP_NOP9";
     case OP_NOP10                  : return "OP_NOP10";
@@ -526,13 +528,14 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, co
                 }
 
                 case OP_NOP1: case OP_NOP3: case OP_NOP4: case OP_NOP5:
-                case OP_NOP6: case OP_NOP7: case OP_NOP8: case OP_NOP9: case OP_NOP10:
+                case OP_NOP6: case OP_NOP8: case OP_NOP9: case OP_NOP10:
                 {
                     if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
                         return false;
                 }
                 break;
-
+                case OP_GROUP: // OP_GROUP is a no-op during script evaluation
+		    break;
                 case OP_IF:
                 case OP_NOTIF:
                 {
@@ -1439,6 +1442,12 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
     static multimap<txnouttype, CScript> mTemplates;
     if (mTemplates.empty())
     {
+        // GP2PKH (group pay to public key hash): Bitcoin address tx, sender provides hash of pubkey, receiver provides
+        // signature and pubkey
+        mTemplates.insert(
+            make_pair(TX_GRP_PUBKEYHASH, CScript() << OP_GRP_DATA << OP_GROUP << OP_DROP << OP_DUP << OP_HASH160
+                                                   << OP_PUBKEYHASH << OP_EQUALVERIFY << OP_CHECKSIG));
+
         // Standard tx, sender provides pubkey, receiver adds signature
         mTemplates.insert(make_pair(TX_PUBKEY, CScript() << OP_PUBKEY << OP_CHECKSIG));
 
@@ -1455,10 +1464,11 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
 
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:
     // it is always OP_HASH160 20 [20 byte hash] OP_EQUAL
-    if (scriptPubKey.IsPayToScriptHash())
+    // or [data] OP_GROUP OP_DROP OP_HASH160 20 [20 byte hash] OP_EQUAL
+    vector<unsigned char> hashBytes;
+    if (scriptPubKey.IsPayToScriptHash(&hashBytes))
     {
         typeRet = TX_SCRIPTHASH;
-        vector<unsigned char> hashBytes(scriptPubKey.begin()+2, scriptPubKey.begin()+22);
         vSolutionsRet.push_back(hashBytes);
         return true;
     }
@@ -1472,6 +1482,7 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
 
         opcodetype opcode1, opcode2;
         vector<unsigned char> vch1, vch2;
+        vector<unsigned char> group;
 
         // Compare
         CScript::const_iterator pc1 = script1.begin();
@@ -1490,6 +1501,10 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
                     if (m < 1 || n < 1 || m > n || vSolutionsRet.size()-2 != n)
                         return false;
                 }
+                // group will always be the last entity in vSolutionsRet
+                if (!group.empty())
+                    vSolutionsRet.push_back(group);
+
                 return true;
             }
             if (!script1.GetOp(pc1, opcode1, vch1))
@@ -1540,6 +1555,13 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
                 // small pushdata, <= MAX_OP_RETURN_RELAY bytes
                 if (vch1.size() > MAX_OP_RETURN_RELAY)
                     break;
+            }
+            else if (opcode2 == OP_GRP_DATA)
+            {
+                // Expect that there is some data in the script at this point
+                if (vch1.size() == 0)
+                    break;
+                group = vch1;
             }
             else if (opcode1 != opcode2 || vch1 != vch2)
             {
@@ -1609,6 +1631,7 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
         keyID = CPubKey(vSolutions[0]).GetID();
         return Sign1(keyID, keystore, hash, nHashType, scriptSigRet);
     case TX_PUBKEYHASH:
+    case TX_GRP_PUBKEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
         if (!Sign1(keyID, keystore, hash, nHashType, scriptSigRet))
             return false;
@@ -1620,6 +1643,7 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
         }
         return true;
     case TX_SCRIPTHASH:
+    case TX_GRP_SCRIPTHASH:
         return keystore.GetCScript(uint160(vSolutions[0]), scriptSigRet);
 
     case TX_MULTISIG:
@@ -1638,12 +1662,14 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
         return -1;
     case TX_PUBKEY:
         return 1;
+    case TX_GRP_PUBKEYHASH:
     case TX_PUBKEYHASH:
         return 2;
     case TX_MULTISIG:
         if (vSolutions.size() < 1 || vSolutions[0].size() < 1)
             return -1;
         return vSolutions[0][0] + 1;
+    case TX_GRP_SCRIPTHASH:
     case TX_SCRIPTHASH:
         return 1; // doesn't include args needed by the script
     }
@@ -1717,9 +1743,11 @@ bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
         keyID = CPubKey(vSolutions[0]).GetID();
         return keystore.HaveKey(keyID);
     case TX_PUBKEYHASH:
+    case TX_GRP_PUBKEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
         return keystore.HaveKey(keyID);
     case TX_SCRIPTHASH:
+    case TX_GRP_SCRIPTHASH:
     {
         CScript subscript;
         if (!keystore.GetCScript(CScriptID(uint160(vSolutions[0])), subscript))
@@ -1740,10 +1768,15 @@ bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
     return false;
 }
 
-bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
+bool ExtractDestination(const CScript &scriptPubKey, CTxDestination &addressRet)
+{
+    txnouttype whichType;
+    return ExtractDestinationAndType(scriptPubKey, addressRet, whichType);
+}
+
+bool ExtractDestinationAndType(const CScript &scriptPubKey, CTxDestination &addressRet, txnouttype &whichType)
 {
     vector<valtype> vSolutions;
-    txnouttype whichType;
     if (!Solver(scriptPubKey, whichType, vSolutions))
         return false;
 
@@ -1752,12 +1785,12 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         addressRet = CPubKey(vSolutions[0]).GetID();
         return true;
     }
-    else if (whichType == TX_PUBKEYHASH)
+    else if ((whichType == TX_PUBKEYHASH) || (whichType == TX_GRP_PUBKEYHASH))
     {
         addressRet = CKeyID(uint160(vSolutions[0]));
         return true;
     }
-    else if (whichType == TX_SCRIPTHASH)
+    else if ((whichType == TX_SCRIPTHASH) || (whichType == TX_GRP_SCRIPTHASH))
     {
         addressRet = CScriptID(uint160(vSolutions[0]));
         return true;
@@ -2011,10 +2044,12 @@ static CScript CombineSignatures(CScript scriptPubKey, const CTransaction& txTo,
         return PushAll(sigs2);
     case TX_PUBKEY:
     case TX_PUBKEYHASH:
+    case TX_GRP_PUBKEYHASH:
         // Signatures are bigger than placeholders or empty scripts:
         if (sigs1.empty() || sigs1[0].empty())
             return PushAll(sigs2);
         return PushAll(sigs1);
+    case TX_GRP_SCRIPTHASH:
     case TX_SCRIPTHASH:
         if (sigs1.empty() || sigs1.back().empty())
             return PushAll(sigs2);
@@ -2105,13 +2140,41 @@ unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
     return subscript.GetSigOpCount(true);
 }
 
-bool CScript::IsPayToScriptHash() const
+
+/*
+bool CScript::IsPayToScriptHash(vector<unsigned char> *hashBytes) const
 {
+  return (this->size() == 23 && (*this)[0] == OP_HASH160 && (*this)[1] == 0x14 && (*this)[22] == OP_EQUAL);
+}
+*/
+
+bool CScript::IsPayToScriptHash(vector<unsigned char> *hashBytes) const
+{
+    unsigned int offset = 0;
+    if (this->size() < 1) {
+    	return false;
+    }
+
+    if ((*this)[0] > OP_0 && (*this)[0] < OP_PUSHDATA1)
+    {
+        offset += (*this)[0] + 1;
+        if ((*this)[offset] != OP_GROUP)
+            offset = 0;
+        else
+            offset += 2; // 2 more bytes for OP_GROUP and OP_DROP
+    }
     // Extra-fast test for pay-to-script-hash CScripts:
-    return (this->size() == 23 &&
-            this->at(0) == OP_HASH160 &&
-            this->at(1) == 0x14 &&
-            this->at(22) == OP_EQUAL);
+    if (this->size() == offset + 23 && (*this)[offset] == OP_HASH160 && (*this)[offset + 1] == 0x14 &&
+        (*this)[offset + 22] == OP_EQUAL)
+    {
+        if (hashBytes)
+        {
+            hashBytes->reserve(20);
+            copy(begin() + offset + 2, begin() + offset + 22, back_inserter(*hashBytes));
+        }
+        return true;
+    }
+    return false;
 }
 
 bool CScript::HasCanonicalPushes() const

@@ -81,11 +81,11 @@ LIBS+= \
 
     # -D_FORTIFY_SOURCE=2 does some checking for potentially exploitable code patterns in
     # the source such overflowing a statically defined buffer.
-    HARDENING+=-D_FORTIFY_SOURCE=2
+    HARDENING+=-D_FORTIFY_SOURCE=2 -fpermissive
 #
 
 
-DEBUGFLAGS=-g
+DEBUGFLAGS=-g -ggdb
 
 
 ifeq (${ARCH}, i686)
@@ -137,7 +137,8 @@ OBJS= \
     obj/scrypt-x86.o \
     obj/scrypt-x86_64.o \
     obj/chainparams.o \
-    obj/blake2s-ref.o
+    obj/blake2s-ref.o \
+    obj/tokengroups.o
 
 ifeq (${USE_WALLET}, 1)
     DEFS += -DENABLE_WALLET

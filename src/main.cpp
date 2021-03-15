@@ -16,6 +16,7 @@
 #include "txdb.h"
 #include "txmempool.h"
 #include "ui_interface.h"
+#include "tokengroups.h"
 
 using namespace std;
 using namespace boost;
@@ -573,6 +574,10 @@ bool CTransaction::CheckTransaction() const
     {
         if (vin[0].scriptSig.size() < 2 || vin[0].scriptSig.size() > 100)
             return DoS(100, error("CTransaction::CheckTransaction() : coinbase script size is invalid"));
+
+        // Coinbase tx can't have group outputs because it has no group inputs or mintable outputs
+        if (IsAnyTxOutputGrouped(*this))
+            return DoS(100, error("CTransaction::CheckTransaction() : coinbase script has group outputs"));
     }
     else
     {
@@ -1382,6 +1387,11 @@ bool CTransaction::ConnectInputs(CTxDB& txdb, MapPrevTx inputs, map<uint256, CTx
         {
             if (nValueIn < GetValueOut())
                 return DoS(100, error("ConnectInputs() : %s value in < value out", GetHash().ToString()));
+
+            if (!CheckTokenGroups(*this, inputs))
+            {
+                return DoS(0, error("Token group inputs and outputs do not balance"));
+            }
 
             // Tally transaction fees
             int64_t nTxFee = nValueIn - GetValueOut();
